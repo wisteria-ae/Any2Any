@@ -1,0 +1,14 @@
+Any2Any has been installed.
+
+Optional feature note:
+PDF -> Excel/CSV table extraction uses Camelot, which in turn requires
+Ghostscript to be installed separately on this system. All other
+conversions (video/audio via ffmpeg, images, PDF -> images, subtitles,
+URL downloads, CSV/JSON) work without it.
+
+If PDF -> Excel/CSV fails, install Ghostscript from:
+https://www.ghostscript.com/releases/gsdnld.html
+then restart Any2Any.
+
+You can check which optional components are available at any time from
+Any2Any's own "Dependency Check" option in the app.
