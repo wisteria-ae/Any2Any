@@ -255,19 +255,36 @@ def run_proc(cmd: List[str], progress: Callable[[int,str],None], job: "Job"):
         proc = _aa_popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=creationflags)
         pct = 5
         tail = []
+
+        import queue, threading
+        q: "queue.Queue" = queue.Queue()
+        def _reader():
+            try:
+                for line in proc.stdout:
+                    q.put(line)
+            finally:
+                q.put(None)  # EOF sentinel
+        threading.Thread(target=_reader, daemon=True).start()
+
         last = time.time()
-        for line in proc.stdout:
-            s = line.rstrip()
-            tail.append(s)
-            last = time.time()
-            if len(tail) > 250: tail.pop(0)
+        while True:
             if job.cancel_flag:
                 proc.terminate(); raise ConvertError("Cancelled")
+            try:
+                line = q.get(timeout=1)
+            except queue.Empty:
+                if time.time() - last > 30:
+                    try: proc.terminate()
+                    except: pass
+                    raise ConvertError("Encoder stalled (no output >30s). Aborted for safety.")
+                continue
+            if line is None:
+                break
+            last = time.time()
+            s = line.rstrip()
+            tail.append(s)
+            if len(tail) > 250: tail.pop(0)
             if "time=" in s or "frame=" in s: pct = min(95, pct+1)
-            if time.time() - last > 30:
-                try: proc.terminate()
-                except: pass
-                raise ConvertError("Encoder stalled (no output >30s). Aborted for safety.")
             progress(pct, s[:100])
         ret = proc.wait()
         if ret != 0:
@@ -279,222 +296,9 @@ def run_proc(cmd: List[str], progress: Callable[[int,str],None], job: "Job"):
         raise ConvertError(f"Missing tool: {e}")
 
 # -------- images --------
-# === Any2Any NVENC multipass patch ===
-from pathlib import Path as _aa_Path
-import subprocess as _aa_subprocess
-# [FIXPACK 2025-08] begin
-# --- auto-inserted: ffmpeg argument sanitizer and NVENC/VP9 normalizer ---
-import os as _fix_os
-import subprocess as _fix_subprocess
-
-def _ff_is_cmd(cmd0: str) -> bool:
-    try:
-        base = _fix_os.path.basename(str(cmd0)).lower()
-        return base.startswith('ffmpeg')
-    except Exception:
-        return False
-
-def _sanitize_ffmpeg_cmd(_cmd):
-    # only lists/tuples we can safely mutate
-    if not isinstance(_cmd, (list, tuple)):
-        return _cmd
-    args = [str(x) for x in _cmd]
-    if not args or not _ff_is_cmd(args[0]):
-        return args
-
-    def _contains(token: str) -> bool:
-        try:
-            return token in args
-        except Exception:
-            return False
-
-    # NVENC (h264/hevc) fixes: drop '-pass N', normalize '-multipass'
-    if 'h264_nvenc' in args or 'hevc_nvenc' in args:
-        # strip '-pass 1/2' (not valid for nvenc)
-        out = []
-        i = 0
-        while i < len(args):
-            if args[i] == '-pass' and i + 1 < len(args) and args[i+1] in ('1','2'):
-                i += 2
-                continue
-            out.append(args[i]); i += 1
-        args = out
-
-        # normalize '-multipass' value
-        out = []
-        i = 0
-        while i < len(args):
-            if args[i] == '-multipass' and i + 1 < len(args):
-                val = str(args[i+1]).lower()
-                # Map any 2pass-ish spelling to 'fullres'
-                if '2pass' in val or 'full' in val or 'fullres' in val:
-                    out.extend(['-multipass', 'fullres'])
-                elif 'qres' in val or 'quarter' in val:
-                    out.extend(['-multipass', 'qres'])
-                else:
-                    out.extend(['-multipass', 'fullres'])
-                i += 2
-                continue
-            out.append(args[i]); i += 1
-        args = out
-
-        # ensure rc/tune/profile sane
-        if 'h264_nvenc' in args:
-            if '-rc' not in args:       args += ['-rc','vbr_hq']
-            if '-tune' not in args:     args += ['-tune','hq']
-            if '-profile' not in args and '-profile:v' not in args:
-                args += ['-profile','high']
-        if 'hevc_nvenc' in args:
-            if '-rc' not in args:       args += ['-rc','vbr_hq']
-            if '-tune' not in args:     args += ['-tune','hq']
-            if '-profile' not in args and '-profile:v' not in args:
-                args += ['-profile','main']
-
-    # VP9 sane defaults if not provided
-    if 'libvpx' in args or 'libvpx-vp9' in args:
-        if '-pix_fmt' not in args:  args += ['-pix_fmt','yuv420p']
-        if '-row-mt' not in args:   args += ['-row-mt','1']
-        if '-deadline' not in args: args += ['-deadline','good']
-        if '-cpu-used' not in args: args += ['-cpu-used','4']
-        # prefer CQ unless the caller already set rate control
-        if '-crf' not in args and '-b:v' not in args:
-            args += ['-b:v','0','-crf','32']
-
-    return args
-
-# monkey-patch subprocess.run but only for ffmpeg invocations
-if not getattr(_fix_subprocess, '_any2any_fixpack_patched', False):
-    _fix_subprocess__run = _fix_subprocess.run
-    def _any2any_fixpack_run(cmd, *a, **kw):
-        try:
-            cmd = _sanitize_ffmpeg_cmd(cmd)
-        except Exception:
-            pass
-        return _fix_subprocess__run(cmd, *a, **kw)
-    _fix_subprocess.run = _any2any_fixpack_run
-    _fix_subprocess._any2any_fixpack_patched = True
-# --- end inserted block ---
-# [FIXPACK 2025-08] end
-
-
-def _aa_ffmpeg_has_encoder(name: str) -> bool:
-    try:
-        out = _aa_subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            capture_output=True, text=True, check=True
-        ).stdout.lower()
-        return name.lower() in out
-    except Exception:
-        return False
-
-_AA_HAS_AV1_NVENC = _aa_ffmpeg_has_encoder("av1_nvenc")
-
-def _aa_is_ffmpeg(cmd):
-    try:
-        exe = _aa_Path(cmd[0]).name.lower() if isinstance(cmd, (list, tuple)) and cmd else str(cmd).split()[0].lower()
-    except Exception:
-        return False
-    return exe in ("ffmpeg", "ffmpeg.exe")
-
-def _aa_strip_flag_with_arg(cmd, flag):
-    new = []
-    skip = False
-    for i, x in enumerate(cmd):
-        if skip:
-            skip = False
-            continue
-        if x == flag:
-            # drop this and the next token (its value) if exists
-            skip = True
-            continue
-        new.append(x)
-    return new
-
-def _aa_remove_flags(cmd, flags_set):
-    return [x for x in cmd if x not in flags_set]
-
-def _aa_normalize_ffmpeg_args(cmd):
-    # Only lists/tuples are normalized safely
-    if not isinstance(cmd, (list, tuple)) or not cmd:
-        return cmd
-    if not _aa_is_ffmpeg(cmd):
-        return cmd
-
-    c = list(cmd)
-
-    # If using NVENC and someone attempted x264-style 2-pass (-pass 1/2), rewrite to single-run multipass.
-    if any(enc in c for enc in ("h264_nvenc", "hevc_nvenc", "av1_nvenc")):
-        if "-pass" in c:
-            # remove any -pass N occurrences
-            # handle multiple occurrences just in case
-            while "-pass" in c:
-                idx = c.index("-pass")
-                del c[idx: min(idx+2, len(c))]
-
-        # h264_nvenc tuning for quality-size control
-        if "h264_nvenc" in c:
-            if "-multipass" not in c:
-                c += ["-multipass", "2pass-full"]
-            if "-rc" not in c:
-                c += ["-rc", "vbr_hq"]
-            if "-tune" not in c:
-                c += ["-tune", "hq"]
-            if "-profile:v" not in c and "-profile" not in c:
-                c += ["-profile:v", "high"]
-
-        # hevc_nvenc: keep if present but don't force extra flags here
-        # av1_nvenc capability/fallback
-        if "av1_nvenc" in c and not _AA_HAS_AV1_NVENC:
-            # Replace with libaom-av1 but try to keep friendly flags
-            for i,x in enumerate(c):
-                if x == "av1_nvenc":
-                    c[i] = "libaom-av1"
-                    break
-            # Remove NVENC-only flags that libaom doesn't understand
-            drop_flags = ('-rc', '-multipass', '-tune', '-spatial_aq', '-temporal_aq', '-aq-strength')
-            c = _aa_remove_flags(c, drop_flags)
-            # Also strip their values if lingering: handle by removing known flags with args again
-            for flag in list(drop_flags):
-                while flag in c:
-                    c = _aa_strip_flag_with_arg(c, flag)
-            # Add a mild speed hint for libaom (if not already present)
-            if "-cpu-used" not in c:
-                c += ["-cpu-used", "4"]
-
-    return c
-
-# Wrap subprocess so every ffmpeg invocation is normalized, but other tools (yt-dlp, etc.) are unaffected.
-_aa_orig_run = _aa_subprocess.run
-_aa_orig_popen = _aa_subprocess.Popen
-
-def _aa_run(*args, **kwargs):
-    # args[0] may be a list or a string
-    if args:
-        cmd = args[0]
-        new_cmd = _aa_normalize_ffmpeg_args(cmd)
-        if new_cmd is not cmd:
-            # rebuild args with modified command
-            args = (new_cmd,) + args[1:]
-    return _aa_orig_run(*args, **kwargs)
-
-def _aa_popen(*args, **kwargs):
-    if args:
-        cmd = args[0]
-        new_cmd = _aa_normalize_ffmpeg_args(cmd)
-        if new_cmd is not cmd:
-            args = (new_cmd,) + args[1:]
-    return _aa_orig_popen(*args, **kwargs)
-
-
-# Activate wrappers (idempotent)
-try:
-    if _aa_subprocess.run is not _aa_run:
-        _aa_subprocess.run = _aa_run  # type: ignore[attr-defined]
-    if _aa_subprocess.Popen is not _aa_popen:
-        _aa_subprocess.Popen = _aa_popen  # type: ignore[attr-defined]
-except Exception:
-    pass
-# === End Any2Any NVENC multipass patch ===
+# NVENC/VP9 tuning flags are built directly by encoder_preset_flags() below,
+# applied at the call site in VideoToMP4.convert. No global subprocess patching.
+_aa_popen = subprocess.Popen
 def _img_save_fit(im: object, dst: Path, out_ext: str, limit_mb: int, q0: int, strip: bool):
     if not limit_mb:
         im.save(dst, **({"quality":q0,"optimize":True} if out_ext in ("jpg","jpeg") else {}), **({"exif": b""} if strip else {})); return
@@ -586,8 +390,9 @@ def encoder_preset_flags(enc: str) -> List[str]:
     if enc == "x264":
         return ["-preset","veryfast"]
     if enc == "nvenc":
-        # safer cross-version NVENC preset (p5 ~= medium/quality)
-        return ["-preset","p5"]
+        # safer cross-version NVENC preset (p5 ~= medium/quality), plus quality tuning.
+        # -multipass must be one of disabled/qres/fullres (not the old "2pass-full").
+        return ["-preset","p5","-rc","vbr_hq","-tune","hq","-multipass","fullres","-profile:v","high"]
     # QSV/AMF often don't have a portable "preset" flag across builds
     return []
 
@@ -781,7 +586,14 @@ class PDFtoXLSX(Converter):
             tmp = src.with_name(src.stem+".ocr.pdf")
             cmd=["ocrmypdf","--skip-text"]
             if langs: cmd+=["-l",langs]
-            cmd += [str(src), str(tmp)]; subprocess.check_call(cmd)
+            cmd += [str(src), str(tmp)]
+            ocr_proc = _aa_popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            while ocr_proc.poll() is None:
+                if job.cancel_flag:
+                    ocr_proc.terminate(); raise ConvertError("Cancelled")
+                time.sleep(0.5)
+            if ocr_proc.returncode != 0:
+                raise ConvertError(f"ocrmypdf failed (exit {ocr_proc.returncode})")
             tables=camelot.read_pdf(str(tmp), pages=pages, flavor=flavor)
             try: tmp.unlink()
             except: pass
@@ -827,13 +639,23 @@ class SubtitlesEmbed(Converter):
         progress(100,f"Saved {dst.name}"); return str(dst)
 register(SubtitlesEmbed())
 
+def _ffmpeg_escape_filter_path(p: str) -> str:
+    # ffmpeg's filtergraph parser treats ':' as an option separator and '\' as an
+    # escape char even inside single quotes, so a raw Windows path like
+    # C:\Users\name\clip.srt must be normalized before going into e.g. subtitles='...'
+    p = str(p).replace("\\", "/")
+    p = p.replace(":", "\\:")
+    p = p.replace("'", "\\'")
+    return p
+
 class SubtitlesBurnIn(Converter):
     accepts=("mp4","mkv","mov","avi","webm"); produces=("mp4+burnsubs",)
     def convert(self, job:"Job", progress):
         ff=ensure_ffmpeg(); src=Path(job.source_path); subs=(job.options or {}).get("subs_path","")
         if not subs or not Path(subs).exists(): raise ConvertError("Provide .srt path in Options → Subtitles file")
         dst=Path(job.output_dir)/(src.stem+"_burn.mp4")
-        run_proc([ff,"-y","-i",str(src),"-vf",f"subtitles='{subs}'","-c:v","libx264","-preset","veryfast","-c:a","aac","-movflags","+faststart",str(dst)],progress,job)
+        subs_escaped=_ffmpeg_escape_filter_path(subs)
+        run_proc([ff,"-y","-i",str(src),"-vf",f"subtitles='{subs_escaped}'","-c:v","libx264","-preset","veryfast","-c:a","aac","-movflags","+faststart",str(dst)],progress,job)
         progress(100,f"Saved {dst.name}"); return str(dst)
 register(SubtitlesBurnIn())
 
@@ -944,8 +766,8 @@ def finalize_outputs(outputs, out_ext: str, job: "Job", progress):
                     # Avoid deleting the final destination
                     if q.resolve() != keep.resolve():
                         q.unlink()
-            except Exception:
-                pass
+            except Exception as e:
+                LOG.warning("finalize_outputs: failed to remove intermediate %s: %s", q, e)
 
     # Route by target extension (single post-step)
     if out_ext == "mp4":
@@ -1382,7 +1204,7 @@ class MainWindow(QMainWindow):
         ]
         if psutil:
             msgs.append(f"Memory: {psutil.virtual_memory().percent}% used")
-        QMessageBox.information(self, "Dependency Check", "\\n".join(msgs))
+        QMessageBox.information(self, "Dependency Check", "\n".join(msgs))
 
     def toggle_watch(self):
         if not HAVE_WATCHDOG:
