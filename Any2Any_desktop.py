@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Optional, Callable, Dict, List, Tuple
 
 APP_NAME = "Any2Any (Local)"
+APP_VERSION = "1.1.1"  # keep in sync with installer/Any2Any.iss MyAppVersion
 DEFAULT_OUTPUT_DIR = str(Path.home() / "Downloads")
 
 # ---------- optional deps ----------
@@ -983,7 +984,7 @@ class WatchHandler(FileSystemEventHandler):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
         try:
             self.resize(1200, 820)
         except Exception:
@@ -1018,7 +1019,7 @@ class MainWindow(QMainWindow):
 
         m_help = menubar.addMenu("&Help")
         a_guide = QAction("Conversion guide...", self); a_guide.triggered.connect(self.show_help); m_help.addAction(a_guide)
-        a_about = QAction("About", self); a_about.triggered.connect(lambda: QMessageBox.information(self, "About", APP_NAME)); m_help.addAction(a_about)
+        a_about = QAction("About", self); a_about.triggered.connect(lambda: QMessageBox.information(self, "About", f"{APP_NAME}\nVersion {APP_VERSION}")); m_help.addAction(a_about)
 
         root.setMenuBar(menubar)
 
