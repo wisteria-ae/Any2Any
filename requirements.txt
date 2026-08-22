@@ -1,0 +1,10 @@
+PySide6
+pillow
+yt-dlp
+pandas
+openpyxl
+pillow-heif
+camelot-py[cv]
+PyMuPDF
+watchdog
+mutagen
