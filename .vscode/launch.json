@@ -5,7 +5,7 @@
       "name": "Run Any2Any",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/any2any_desktop.py",
+      "program": "${workspaceFolder}/Any2Any_desktop.py",
       "python": "${workspaceFolder}/.venv/Scripts/python.exe",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
