@@ -1,14 +1,22 @@
 Any2Any has been installed.
 
-Optional feature note:
-PDF -> Excel/CSV table extraction uses Camelot, which in turn requires
-Ghostscript to be installed separately on this system. All other
-conversions (video/audio via ffmpeg, images, PDF -> images, subtitles,
-URL downloads, CSV/JSON) work without it.
+Everything below is optional - the app works out of the box.
 
-If PDF -> Excel/CSV fails, install Ghostscript from:
-https://www.ghostscript.com/releases/gsdnld.html
-then restart Any2Any.
+Links (YouTube, Shorts, X/Twitter, TikTok, Twitch, ...)
+  - Sites change often. If a link stops working, use Tools > "Update link
+    downloader (yt-dlp)..." to fetch the latest fix, no reinstall needed.
+  - Reddit, Instagram and a few others require you to be logged in. In
+    Options, pick your browser under "URL cookies" (Firefox is the most
+    reliable), or choose an exported cookies.txt file.
 
-You can check which optional components are available at any time from
-Any2Any's own "Dependency Check" option in the app.
+Word -> PDF
+  - If Microsoft Word is installed it is used, so the PDF looks exactly like
+    Word's own. Without Word, a built-in renderer handles text, headings,
+    lists, tables and pictures with simpler page layout.
+
+Scanned PDFs
+  - PDFs that are only pictures of pages have no text to convert. Run OCR on
+    them first (for example with the free "ocrmypdf" tool); Any2Any will use
+    ocrmypdf automatically for PDF -> Excel/CSV if it is installed.
+
+You can see what is available at any time under Tools > Dependency check.

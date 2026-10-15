@@ -1,5 +1,5 @@
 #define MyAppName "Any2Any"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Any2Any"
 #define MyAppExeName "Any2Any.exe"
 
