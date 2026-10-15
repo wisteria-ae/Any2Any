@@ -57,11 +57,24 @@ output is plain paragraphs without the original layout. Sideways pages are auto-
 
 ## Building
 
+**Just want the app?** Download `Any2AnySetup.exe` from the repository's **Releases** page and run it. ffmpeg, the
+link-download engine and everything else are inside; nothing else to install.
+
+**Build from source** (Python 3.11+ and [Inno Setup 6](https://jrsoftware.org/isinfo.php) needed):
+
 ```
-pip install -r requirements.txt pyinstaller
-pyinstaller --noconfirm --clean Any2Any.spec          # -> dist\Any2Any\
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\Any2Any.iss   # -> installer\output\Any2AnySetup.exe
+git clone <this repository>
+cd Any2Any
+powershell -ExecutionPolicy Bypass -File build.ps1       # -> installer\output\Any2AnySetup.exe
 ```
+
+`build.ps1` downloads ffmpeg for you (`tools\fetch_ffmpeg.ps1`, SHA-256 checked; the binaries are not stored in git),
+then runs PyInstaller and Inno Setup. To run straight from source instead: `tools\fetch_ffmpeg.ps1`, then
+`pip install -r requirements.txt`, then `python Any2Any_desktop.py`.
+
+**Third-party software shipped in the installer:** FFmpeg (GPL build from BtbN/FFmpeg-Builds; license text in the install
+folder, source at ffmpeg.org), QuickJS-ng (MIT), yt-dlp (Unlicense), and the Python packages in `requirements.txt` under
+their own licenses.
 
 Keep `APP_VERSION` in `Any2Any_desktop.py` and `MyAppVersion` in `installer\Any2Any.iss` in sync. Tests: see `tests\README.md`.
 Code-signing the installer (so SmartScreen stops warning) needs a certificate; Microsoft's Trusted Signing is the cheapest legitimate route.

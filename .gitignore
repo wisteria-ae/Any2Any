@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 installer/output/
 safe to delete/
+vendor/ffmpeg/
+.venv-pkg/

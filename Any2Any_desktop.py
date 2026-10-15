@@ -294,14 +294,14 @@ def _js_runtimes() -> Dict[str, dict]:
 def ensure_ffmpeg() -> str:
     for p in ff_candidates(["ffmpeg.exe","ffmpeg"]):
         if p.exists(): return str(p)
-    raise ConvertError("ffmpeg not found. Put ffmpeg.exe in vendor\\ffmpeg or install system-wide.")
+    raise ConvertError("ffmpeg not found. Run tools\\fetch_ffmpeg.ps1 (fills vendor\\ffmpeg) or install ffmpeg system-wide.")
 
 def ensure_ffprobe() -> str:
     for p in ff_candidates(["ffprobe.exe","ffprobe"]):
         if p.exists(): return str(p)
     w = shutil.which("ffprobe") or shutil.which("ffmpeg")
     if w: return w
-    raise ConvertError("ffprobe not found. Put ffprobe.exe in vendor\\ffmpeg or install system-wide.")
+    raise ConvertError("ffprobe not found. Run tools\\fetch_ffmpeg.ps1 (fills vendor\\ffmpeg) or install ffmpeg system-wide.")
 # ---- safety helpers ----
 def _test_hw_encoder(enc_name: str) -> tuple[bool, str]:
     """Quick preflight to catch broken GPU encoders (NVENC/QSV/AMF)."""
