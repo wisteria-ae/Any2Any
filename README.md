@@ -78,3 +78,9 @@ their own licenses.
 
 Keep `APP_VERSION` in `Any2Any_desktop.py` and `MyAppVersion` in `installer\Any2Any.iss` in sync. Tests: see `tests\README.md`.
 Code-signing the installer (so SmartScreen stops warning) needs a certificate; Microsoft's Trusted Signing is the cheapest legitimate route.
+
+## License
+
+Any2Any is free software under the **GNU Affero General Public License v3.0** (see `LICENSE`): you may use, modify and
+share it, and anyone who distributes a copy or a modified version must also provide the source under the same license.
+Copyright (C) 2026 Arvid. The AGPL is required here because the installer bundles PyMuPDF (AGPL-3.0) and FFmpeg (GPL v3).
